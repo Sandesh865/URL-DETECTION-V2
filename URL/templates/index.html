@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phishing URL Detector</title>
+    <!-- Include Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Include Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom styles -->
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Inter', sans-serif;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            margin: 2rem;
+        }
+        .card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .btn-primary {
+            background: #1d4ed8;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            transition: background 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: #1e40af;
+        }
+        .btn-retry {
+            background: #f97316;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: background 0.3s ease;
+        }
+        .btn-retry:hover {
+            background: #ea580c;
+        }
+        .error {
+            background: rgba(255, 99, 71, 0.1);
+            color: #ff6347;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+        }
+        .info {
+            background: rgba(59, 130, 246, 0.1);
+            color: #1d4ed8;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+        }
+        .result-section {
+            margin-top: 1.5rem;
+        }
+        .result-section h4 {
+            color: #1f2937;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+        .result-section h4 i {
+            margin-right: 0.5rem;
+        }
+        .result-content {
+            display: none;
+        }
+        .result-content.active {
+            display: block;
+        }
+        .result-item {
+            background: #f9fafb;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+        }
+        .result-item i {
+            margin-right: 0.5rem;
+            color: #6b7280;
+        }
+        /* Loading spinner */
+        .spinner {
+            display: none;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1d4ed8;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 1rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="card">
+            <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">Phishing URL Detector</h1>
+            <!-- Form -->
+            <form method="POST" action="/predict" class="flex justify-center space-x-4" onsubmit="showSpinner()">
+                <input type="text" name="url" placeholder="Enter URL here (e.g., https://example.com)" required
+                       class="w-2/3 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" class="btn-primary">Check URL</button>
+            </form>
+            <div id="spinner" class="spinner"></div>
+        </div>
+
+        <!-- Results -->
+        {% if model_prediction %}
+            <div class="card result-section">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Result for: <span class="text-blue-600">{{ url }}</span></h3>
+                
+                <!-- Model Prediction -->
+                <div class="result-section">
+                    <h4 onclick="toggleSection('model-result')"><i class="fas fa-robot"></i> Model Prediction</h4>
+                    <div id="model-result" class="result-content active">
+                        <div class="result-item">
+                            <i class="fas fa-check-circle"></i>
+                            <p class="text-gray-600 {% if is_phishing %}text-red-600{% else %}text-green-600{% endif %}">
+                                {{ model_prediction }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secondary Verification -->
+                <div class="result-section">
+                    <h4 onclick="toggleSection('secondary-result')"><i class="fas fa-shield-alt"></i> Secondary Verification ({{ scan_source }})</h4>
+                    <div id="secondary-result" class="result-content active">
+                        {% if scan_error %}
+                            <div class="error">
+                                {% if "conflict" in scan_error|lower %}
+                                    <p>A scan for this URL is already in progress or recently completed. Please wait a few minutes and try again.</p>
+                                {% else %}
+                                    <p>{{ scan_error }}</p>
+                                {% endif %}
+                                <form method="POST" action="/predict" class="mt-2">
+                                    <input type="hidden" name="url" value="{{ url }}">
+                                    <button type="submit" class="btn-retry">Retry Scan</button>
+                                </form>
+                            </div>
+                        {% else %}
+                            {% if cloudflare_error %}
+                                <div class="info">
+                                    <p>Cloudflare scan failed: 
+                                        {% if "conflict" in cloudflare_error|lower %}
+                                            A scan for this URL is already in progress or recently completed. Please wait a few minutes and try again.
+                                        {% elif "timed out" in cloudflare_error|lower %}
+                                            {{ cloudflare_error }} Consider trying again later or using a different URL.
+                                        {% else %}
+                                            {{ cloudflare_error }}
+                                        {% endif %}
+                                    </p>
+                                    {% if google_error %}
+                                        <p>Google Safe Browsing scan failed: {{ google_error }}</p>
+                                    {% else %}
+                                        <p>Fallback to {{ scan_source }}:</p>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                            {% if scan_malicious is not none %}
+                                <div class="result-item">
+                                    <i class="fas fa-exclamation-circle"></i>
+                                    <p><strong>Malicious:</strong> <span class="{% if scan_malicious %}text-red-600{% else %}text-green-600{% endif %}">{{ "Yes" if scan_malicious else "No" }}</span></p>
+                                </div>
+                            {% endif %}
+                            {% if scan_source == "Cloudflare" %}
+                                <div class="result-item">
+                                    <i class="fas fa-tachometer-alt"></i>
+                                    <p><strong>Score:</strong> {{ scan_score }} (0-100, higher is riskier)</p>
+                                </div>
+                                <div class="result-item">
+                                    <i class="fas fa-tags"></i>
+                                    <p><strong>Categories:</strong> {{ scan_categories | join(', ') if scan_categories else "None" }}</p>
+                                </div>
+                                <div class="result-item">
+                                    <i class="fas fa-network-wired"></i>
+                                    <p><strong>IP Address:</strong> {{ scan_ip }}</p>
+                                </div>
+                                <div class="result-item">
+                                    <i class="fas fa-globe"></i>
+                                    <p><strong>Country:</strong> {{ scan_country }}</p>
+                                </div>
+                                <div class="result-item">
+                                    <i class="fas fa-cogs"></i>
+                                    <p><strong>Technologies:</strong> {{ scan_technologies | join(', ') if scan_technologies else "None" }}</p>
+                                </div>
+                            {% elif scan_source == "Google Safe Browsing" %}
+                                {% if scan_threats %}
+                                    <div class="result-item">
+                                        <i class="fas fa-tags"></i>
+                                        <p><strong>Threat Types:</strong> {{ scan_threats | join(', ') }}</p>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Error Message -->
+        {% if error %}
+            <div class="card">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Error</h3>
+                <p class="error">{{ error }}</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- JavaScript for toggling sections and spinner -->
+    <script>
+        function toggleSection(sectionId) {
+            const content = document.getElementById(sectionId);
+            content.classList.toggle('active');
+        }
+
+        function showSpinner() {
+            const spinner = document.getElementById('spinner');
+            spinner.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
